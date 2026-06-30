@@ -1,0 +1,33 @@
+# ============================================================
+# ZebraTrack3D — File Paths Configuration
+# ============================================================
+
+# ──────────────────────────────────────────────────────────
+# Input Paths
+# ──────────────────────────────────────────────────────────
+input:
+  raw_dir: data/raw/
+  train_zarr: data/raw/train/
+  test_zarr: data/raw/test/
+  labels_dir: data/raw/labels/
+
+# ──────────────────────────────────────────────────────────
+# Processed / Intermediate Paths
+# ──────────────────────────────────────────────────────────
+processed:
+  root: data/processed/
+  train_patches: data/processed/train_patches/
+  val_patches: data/processed/val_patches/
+  cell_coords: data/processed/cell_coords.csv
+  tracks: data/processed/tracks.csv
+
+# ──────────────────────────────────────────────────────────
+# Output Paths
+# ──────────────────────────────────────────────────────────
+output:
+  root: outputs/
+  models: outputs/models/
+  predictions: outputs/predictions/
+  logs: outputs/logs/
+  figures: outputs/figures/
+  submission: outputs/predictions/submission.csv

@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+pip-wheel-metadata/
+*.pyc
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+.conda/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Data directories (too large for git)
+data/raw/
+data/processed/
+data/external/
+
+# Outputs
+outputs/models/
+outputs/predictions/
+outputs/logs/
+outputs/figures/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# DVC
+.dvc/cache/
+*.dvc
+
+# Hydra outputs
+outputs/
+multirun/
+
+# MLflow
+mlruns/
+
+# TensorBoard logs
+runs/
+
+# Secrets
+.env
+*.secret
+secrets.yaml
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# MyPy
+.mypy_cache/
+
+# Ruff / Flake8
+.ruff_cache/

@@ -1,0 +1,91 @@
+# ============================================================
+# ZebraTrack3D — Hyperparameter Configuration
+# ============================================================
+
+# ──────────────────────────────────────────────────────────
+# Data
+# ──────────────────────────────────────────────────────────
+data:
+  zarr_root: data/raw/
+  processed_root: data/processed/
+  patch_size: [64, 128, 128]      # [Z, Y, X] training patch dimensions
+  overlap: [8, 16, 16]           # sliding-window overlap during inference
+  val_split: 0.15
+  test_split: 0.05
+  num_workers: 4
+  pin_memory: true
+
+# ──────────────────────────────────────────────────────────
+# Model
+# ──────────────────────────────────────────────────────────
+model:
+  name: unet3d                    # unet3d | nnunet | cellpose3d
+  in_channels: 1
+  out_channels: 2                 # foreground / background
+  features: [32, 64, 128, 256]
+  dropout: 0.1
+  norm: instance                  # batch | instance | group
+  activation: leaky_relu
+
+# ──────────────────────────────────────────────────────────
+# Training
+# ──────────────────────────────────────────────────────────
+training:
+  epochs: 100
+  batch_size: 2
+  accumulate_grad_batches: 4
+  lr: 1.0e-4
+  lr_scheduler: cosine            # step | cosine | plateau
+  weight_decay: 1.0e-5
+  loss: dice_bce                  # bce | dice | dice_bce | focal
+  early_stopping_patience: 15
+  seed: 42
+  amp: true                       # automatic mixed precision
+
+# ──────────────────────────────────────────────────────────
+# Augmentation
+# ──────────────────────────────────────────────────────────
+augmentation:
+  flip_prob: 0.5
+  rotate_prob: 0.3
+  rotate_max_angle: 30
+  intensity_shift: 0.1
+  intensity_scale: 0.1
+  gaussian_noise_std: 0.02
+  elastic_deform: false
+
+# ──────────────────────────────────────────────────────────
+# Tracking
+# ──────────────────────────────────────────────────────────
+tracking:
+  method: min_cost_flow           # min_cost_flow | hungarian | deep_sort
+  max_distance: 20.0              # max spatial distance for linking (voxels)
+  max_gap: 2                      # frames a cell can disappear
+  division_min_children: 2
+  division_score_threshold: 0.5
+
+# ──────────────────────────────────────────────────────────
+# Postprocessing
+# ──────────────────────────────────────────────────────────
+postprocessing:
+  threshold: 0.5
+  min_object_size: 50             # minimum voxels per detection
+  watershed: true
+
+# ──────────────────────────────────────────────────────────
+# Evaluation
+# ──────────────────────────────────────────────────────────
+evaluation:
+  iou_threshold: 0.5
+
+# ──────────────────────────────────────────────────────────
+# Logging / Checkpointing
+# ──────────────────────────────────────────────────────────
+logging:
+  project: zebratrack3d
+  run_name: unet3d_baseline
+  log_every_n_steps: 10
+  checkpoint_dir: outputs/models/
+  save_top_k: 3
+  monitor: val_edge_jaccard
+  tensorboard: true
