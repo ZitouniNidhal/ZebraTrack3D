@@ -1,22 +1,21 @@
-"""
-metrics.py
-──────────
-Competition metrics for the Biohub Cell Tracking Challenge.
+# -*- coding: utf-8 -*-
+"""metrics.py
+────────────────────
+Utility functions for evaluating cell‑tracking predictions.
 
-Metrics
-───────
-- **Edge Jaccard (EJ)**: IoU over the set of edges in the tracking graph.
-- **Division Jaccard (DJ)**: IoU over the set of detected division events.
-- **Combined score**: 0.5 * EJ + 0.5 * DJ.
-
-Node matching uses Optimal Bipartite Matching (Hungarian algorithm) based on
-spatial overlap (IoU of instance segmentation masks).
+The original implementation exposed only Edge Jaccard, Division Jaccard and a combined
+score.  This version adds:
+* type hints and exhaustive docstrings (Google style)
+* input validation for the pandas DataFrames
+* helper functions that clearly separate node‑matching, edge extraction and division extraction
+* precision, recall and F1 for edges and divisions
+* a small internal ``_compute_iou_matrix`` used by the matching routine (kept for possible future extensions)
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -24,33 +23,31 @@ from scipy.optimize import linear_sum_assignment
 
 logger = logging.getLogger(__name__)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
 # Type aliases
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+Edge = Tuple[int, int]  # (source_track_id, target_track_id)
+DivEvent = Tuple[int, int, int]  # (parent_track_id, daughter1, daughter2)
 
-Edge = Tuple[int, int]         # (from_node, to_node)  — integers are det IDs
-DivEvent = Tuple[int, int, int]  # (parent, daughter1, daughter2)
+# ──────────────────────────────────────────────────────────────────────────────
+# Helper utilities
+# ──────────────────────────────────────────────────────────────────────────────
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Node matching (instance segmentation IoU)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def compute_iou_matrix(
+def _compute_iou_matrix(
     pred_masks: Dict[int, np.ndarray],
     gt_masks: Dict[int, np.ndarray],
 ) -> np.ndarray:
-    """Compute IoU between all pairs of predicted and GT instance masks.
+    """Return the IoU matrix between every predicted and ground‑truth mask.
 
     Parameters
     ----------
     pred_masks, gt_masks:
-        Dicts mapping cell_id → binary boolean array (same spatial shape).
+        Mapping ``cell_id → binary mask`` with identical spatial dimensions.
 
     Returns
     -------
-    iou_matrix of shape (n_pred, n_gt).
+    np.ndarray
+        Shape ``(n_pred, n_gt)`` where each entry is the Intersection‑over‑Union.
     """
     pred_ids = sorted(pred_masks)
     gt_ids = sorted(gt_masks)
@@ -59,21 +56,18 @@ def compute_iou_matrix(
         p = pred_masks[pid]
         for j, gid in enumerate(gt_ids):
             g = gt_masks[gid]
-            inter = (p & g).sum()
-            union = (p | g).sum()
+            inter = np.logical_and(p, g).sum()
+            union = np.logical_or(p, g).sum()
             iou[i, j] = inter / (union + 1e-8)
     return iou
 
 
-def match_nodes(
-    iou_matrix: np.ndarray,
-    threshold: float = 0.5,
-) -> Dict[int, int]:
-    """Match predicted nodes to GT nodes using optimal bipartite matching.
+def _match_nodes(iou_matrix: np.ndarray, threshold: float = 0.5) -> Dict[int, int]:
+    """Perform optimal bipartite matching on an IoU matrix.
 
-    Returns a dict {pred_index: gt_index} for pairs above *threshold*.
+    Returns a mapping from ``pred_index`` to ``gt_index`` for all pairs whose IoU
+    exceeds *threshold*.
     """
-    # Hungarian algorithm minimizes cost → negate IoU
     row_ind, col_ind = linear_sum_assignment(-iou_matrix)
     matches: Dict[int, int] = {}
     for r, c in zip(row_ind, col_ind):
@@ -81,21 +75,14 @@ def match_nodes(
             matches[r] = c
     return matches
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Edge Jaccard and Division Jaccard – unchanged core definitions
+# ──────────────────────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Edge Jaccard
-# ─────────────────────────────────────────────────────────────────────────────
+def edge_jaccard(pred_edges: Set[Edge], gt_edges: Set[Edge]) -> float:
+    """Intersection‑over‑Union of two edge sets.
 
-def edge_jaccard(
-    pred_edges: Set[Edge],
-    gt_edges: Set[Edge],
-) -> float:
-    """Compute Edge Jaccard Index (IoU over edge sets).
-
-    Parameters
-    ----------
-    pred_edges, gt_edges:
-        Sets of (from_matched_id, to_matched_id) edges using matched node IDs.
+    An empty‑set vs empty‑set is defined as perfect (1.0).
     """
     if not pred_edges and not gt_edges:
         return 1.0
@@ -105,26 +92,87 @@ def edge_jaccard(
     return tp / (tp + fp + fn + 1e-8)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Division Jaccard
-# ─────────────────────────────────────────────────────────────────────────────
+def division_jaccard(pred_divs: Set[DivEvent], gt_divs: Set[DivEvent]) -> float:
+    """Intersection‑over‑Union of division event sets.
 
-def division_jaccard(
-    pred_divisions: Set[DivEvent],
-    gt_divisions: Set[DivEvent],
-) -> float:
-    """Compute Division Jaccard Index (IoU over division-event sets)."""
-    if not pred_divisions and not gt_divisions:
+    Handles the empty‑set edge case identically to ``edge_jaccard``.
+    """
+    if not pred_divs and not gt_divs:
         return 1.0
-    tp = len(pred_divisions & gt_divisions)
-    fp = len(pred_divisions - gt_divisions)
-    fn = len(gt_divisions - pred_divisions)
+    tp = len(pred_divs & gt_divs)
+    fp = len(pred_divs - gt_divs)
+    fn = len(gt_divs - pred_divs)
     return tp / (tp + fp + fn + 1e-8)
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Precision / Recall / F1 helpers
+# ──────────────────────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Combined evaluation
-# ─────────────────────────────────────────────────────────────────────────────
+def _prf(tp: int, fp: int, fn: int) -> Tuple[float, float, float]:
+    """Return precision, recall and F1 given true‑positive, false‑positive and false-negative counts."""
+    precision = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+    return precision, recall, f1
+
+
+def edge_prf(pred_edges: Set[Edge], gt_edges: Set[Edge]) -> Tuple[float, float, float]:
+    """Precision, recall and F1 for edge sets."""
+    tp = len(pred_edges & gt_edges)
+    fp = len(pred_edges - gt_edges)
+    fn = len(gt_edges - pred_edges)
+    return _prf(tp, fp, fn)
+
+
+def division_prf(pred_divs: Set[DivEvent], gt_divs: Set[DivEvent]) -> Tuple[float, float, float]:
+    """Precision, recall and F1 for division event sets."""
+    tp = len(pred_divs & gt_divs)
+    fp = len(pred_divs - gt_divs)
+    fn = len(gt_divs - pred_divs)
+    return _prf(tp, fp, fn)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Core evaluation routine
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _validate_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Validate that a tracking DataFrame contains the required columns.
+
+    Expected columns are ``["track_id", "parent_id", "t", "z", "y", "x"]``.
+    ``parent_id`` may contain ``NaN`` for root nodes.
+    """
+    required = {"track_id", "parent_id", "t", "z", "y", "x"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"DataFrame is missing required columns: {missing}")
+    return df
+
+
+def _edges(df: pd.DataFrame) -> Set[Edge]:
+    """Extract the set of edges ``(track_id_t, track_id_t+1)`` from a DataFrame."""
+    edges: Set[Edge] = set()
+    for _, group in df.groupby("track_id"):
+        ordered = group.sort_values("t")["track_id"].tolist()
+        for i in range(len(ordered) - 1):
+            edges.add((ordered[i], ordered[i + 1]))
+    return edges
+
+
+def _divisions(df: pd.DataFrame) -> Set[DivEvent]:
+    """Extract division events ``(parent, daughter1, daughter2)``.
+
+    Only divisions with exactly two children are considered.
+    """
+    parent_map: Dict[int, List[int]] = {}
+    for row in df.itertuples():
+        if getattr(row, "parent_id") is not None and not pd.isna(row.parent_id):
+            parent_map.setdefault(int(row.parent_id), []).append(int(row.track_id))
+    divisions: Set[DivEvent] = set()
+    for parent, children in parent_map.items():
+        if len(children) == 2:
+            divisions.add((parent, children[0], children[1]))
+    return divisions
+
 
 def evaluate(
     pred_df: pd.DataFrame,
@@ -132,44 +180,48 @@ def evaluate(
     w_edge: float = 0.5,
     w_div: float = 0.5,
 ) -> Dict[str, float]:
-    """Compute Edge Jaccard, Division Jaccard, and combined score.
+    """Compute a suite of tracking metrics.
 
     Parameters
     ----------
     pred_df, gt_df:
-        DataFrames with columns:
-        ``["track_id", "parent_id", "t", "z", "y", "x"]``.
+        DataFrames describing the predicted and ground‑truth tracks.  They must
+        contain the columns ``track_id, parent_id, t, z, y, x``.
+    w_edge, w_div:
+        Weights for the combined score – the default mirrors the original
+        implementation (simple average).
 
     Returns
     -------
-    Dict with keys: ``edge_jaccard``, ``division_jaccard``, ``combined``.
+    dict
+        ``edge_jaccard``, ``division_jaccard``, ``edge_precision``,
+        ``edge_recall``, ``edge_f1``, ``division_precision``, ``division_recall``,
+        ``division_f1`` and ``combined``.
     """
-    # Build edge sets: (track_id_at_t-1, track_id_at_t)
-    def _edges(df: pd.DataFrame) -> Set[Edge]:
-        edges: Set[Edge] = set()
-        for tid, group in df.groupby("track_id"):
-            group = group.sort_values("t")
-            ids = group["track_id"].tolist()
-            for i in range(len(ids) - 1):
-                edges.add((ids[i], ids[i + 1]))
-        return edges
+    pred_df = _validate_dataframe(pred_df)
+    gt_df = _validate_dataframe(gt_df)
 
-    # Build division sets: (parent_track_id, child1, child2)
-    def _divisions(df: pd.DataFrame) -> Set[DivEvent]:
-        divs: Set[DivEvent] = set()
-        parent_map: Dict[int, List[int]] = {}
-        for row in df.itertuples():
-            if row.parent_id is not None and not np.isnan(float(row.parent_id)):
-                parent_map.setdefault(int(row.parent_id), []).append(row.track_id)
-        for parent, children in parent_map.items():
-            if len(children) == 2:
-                divs.add((parent, children[0], children[1]))
-        return divs
+    pred_edges = _edges(pred_df)
+    gt_edges = _edges(gt_df)
+    pred_divs = _divisions(pred_df)
+    gt_divs = _divisions(gt_df)
 
-    ej = edge_jaccard(_edges(pred_df), _edges(gt_df))
-    dj = division_jaccard(_divisions(pred_df), _divisions(gt_df))
+    ej = edge_jaccard(pred_edges, gt_edges)
+    dj = division_jaccard(pred_divs, gt_divs)
+    ep, er, ef1 = edge_prf(pred_edges, gt_edges)
+    dp, dr, df1 = division_prf(pred_divs, gt_divs)
     combined = w_edge * ej + w_div * dj
 
-    results = {"edge_jaccard": ej, "division_jaccard": dj, "combined": combined}
+    results = {
+        "edge_jaccard": ej,
+        "division_jaccard": dj,
+        "edge_precision": ep,
+        "edge_recall": er,
+        "edge_f1": ef1,
+        "division_precision": dp,
+        "division_recall": dr,
+        "division_f1": df1,
+        "combined": combined,
+    }
     logger.info("Evaluation results: %s", results)
     return results
